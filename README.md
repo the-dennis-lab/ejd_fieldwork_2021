@@ -17,3 +17,7 @@ to use:
     `conda install pandas`
 
     `conda install tifffile`
+
+I'm using the first five images from dennis lab drive > 2021_fieldwork > data > drone_footage > 20210524 to test tiling overlap
+
+`conda install -c conda-forge opencv`
