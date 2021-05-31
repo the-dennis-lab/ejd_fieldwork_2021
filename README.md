@@ -1,5 +1,6 @@
-# ejd_scratch
-Emily's misc code
+# ejd_fieldwork_2021
+Emily's code for working on data from 2021 Graham/Froemke collaboration
+
 
 to use:
 * make a conda environment called fieldwork
@@ -21,3 +22,6 @@ to use:
 I'm using the first five images from dennis lab drive > 2021_fieldwork > data > drone_footage > 20210524 to test tiling overlap
 
 `conda install -c conda-forge opencv`
+
+## files
+scratch.ipynb
