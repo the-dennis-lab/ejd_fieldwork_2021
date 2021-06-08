@@ -1,27 +1,16 @@
 # ejd_fieldwork_2021
 Emily's code for working on data from 2021 Graham/Froemke collaboration
 
+## Set up
 
-to use:
-* make a conda environment called fieldwork
-    `conda create --name fieldwork`
+make a conda environment called fieldwork_2021 from environment file
 
-* activate it
-    `conda activate fieldwork`
+```
+conda env create -f environment.yaml
 
-* then install common things
+conda activate fieldwork_2021
+```
 
-    `conda install -c conda-forge jupyterlab`
-
-    `conda install -c conda-forge scikit-learn`
-
-    `conda install pandas`
-
-    `conda install tifffile`
+## Usage
 
 I'm using the first five images from dennis lab drive > 2021_fieldwork > data > drone_footage > 20210524 to test tiling overlap
-
-`conda install -c conda-forge opencv`
-
-## files
-scratch.ipynb
