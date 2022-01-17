@@ -1,3 +1,8 @@
+# data folder (so this doesn't get huge)
+data/
+data/*
+data/**
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
