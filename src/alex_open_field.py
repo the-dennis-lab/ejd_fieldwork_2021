@@ -1,4 +1,3 @@
-
 """alex_open_field.py:
 REQUIRED INPUTS:
     1. a folder or file
@@ -11,7 +10,7 @@ HARDCODED:
     a few things are currently hardcoded for convenience.
     - If using a file to subset the dataframes by start/end time,
     then we assume you're using filenames like VID_20210925_134723 for your videos, that have 18 long strings. Else,
-    search for 'filename.split('/')[-1][0:18]' and change 18 to a number of your choosing.
+    search for 'os.path.basename(filename)[0:19]' and change 18 to a number of your choosing.
     - FPS is 29.93s, change at top of main
 
 OUTPUTS:
@@ -111,13 +110,15 @@ if __name__ == "__main__":
     frames_with_nose=[]
     frames_with_head=[]
     frames_with_body=[]
-    total_frames=[]
+    l_frames=[]
     frames_within_50mm=[]
     fraction_frames_within_50mm=[]
     fraction_LIGHT_frames_within_50mm=[]
     fraction_LIGHT_frames_in_center=[]
     first_frame_in_center=[]
     num_entrances=[]
+    total_frames=[]
+    num_jumps=[]
 
     if not os.path.isdir('../data/results'):
         os.mkdir('../data/results')
@@ -177,19 +178,20 @@ if __name__ == "__main__":
     for filename in full_path_list:
         df = pd.read_csv(filename,header=[1,2])
         new_df=reformat_df(df,0.9,1000,15,3,30)
-        sub_file_name = filename.split('/')[-1][0:18]
+
+        sub_file_name=os.path.basename(filename)[0:19]
         if to_subset:
             try:
                 times_vals=times[times.File_name==sub_file_name]
                 start_val=round(list(times_vals.Start_time_in_seconds)[0]*FPS)
-                end_val=round(list(times_vals.Start_time_in_seconds)[0]*FPS)
+                end_val=round(list(times_vals.End_time_in_seconds)[0]*FPS)
                 new_df=new_df[new_df.index<end_val]
                 new_df=new_df[new_df.index>start_val]
                 new_df=new_df.reset_index()
                 new_df=new_df.drop(columns=['index'])
             except:
                 print('failed to subset filename, skipping subsetting')
-        new_df.to_csv('../data/results/'+sub_file_name+"_adj.csv")
+        new_df.to_csv(os.path.join('..','data','results',sub_file_name+"_adj.csv"))
         print('===== saved out {} adjusted csv, plotting then aligning next'.format(sub_file_name))
 
         # plot new corners
@@ -197,11 +199,12 @@ if __name__ == "__main__":
         plt.scatter(new_df.box_br['x'],new_df.box_br['y'],c='pink') #500,500mm
         plt.scatter(new_df.box_tl['x'],new_df.box_tl['y'],c='b') #0,0mm
         plt.scatter(new_df.box_tr['x'],new_df.box_tr['y'],c='cyan') #500,0mm
-        plt.savefig('../data/results/'+sub_file_name+"_adj_points.png")
+        plt.savefig(os.path.join('..','data','results',sub_file_name+"_adj_points.png"))
+        plt.close()
 
         # affine transform to correct for sliding FOV
         aligned_df=align_df(new_df)
-        aligned_df.to_csv('../data/results/'+sub_file_name++"_aligned.csv")
+        aligned_df.to_csv(os.path.join('..','data','results',sub_file_name+"_aligned.csv"))
         print('===== saved out {} aligned csv, plotting then getting summary data'.format(sub_file_name))
 
         # plot newly aligned points
@@ -210,7 +213,8 @@ if __name__ == "__main__":
         plt.scatter(aligned_df.box_br['x'],aligned_df.box_br['y'],c='pink')
         plt.scatter(aligned_df.box_tl['x'],aligned_df.box_tl['y'],c='b')
         plt.scatter(aligned_df.box_tr['x'],aligned_df.box_tr['y'],c='cyan')
-        plt.savefig('../data/results/'+sub_file_name+"_all_points_with_corners.png")
+        plt.savefig(os.path.join('..','data','results',sub_file_name+"_all_points_with_corners.png"))
+        plt.close()
 
         # GET SUMMARY DATA
         # TODO SAVE OUT AS CSV FFTER LOOP
@@ -229,11 +233,14 @@ if __name__ == "__main__":
             if xval < 50 or xval > 450 or yval < 50 or yval > 450:
                 nose_df.iloc[idx,3]=1
 
-        summed_val=np.sum(nose_df.within50mm)
         frames_with_nose.append(np.sum(nose_vals))
         frames_with_head.append(np.sum(nose_vals*ear_l_vals*ear_r_vals))
         frames_with_body.append(np.sum(nose_vals*ear_l_vals*ear_r_vals*tail_vals))
-        total_frames = len(nose_vals)
+        total_frames.append(len(nose_vals))
+
+
+        summed_val=np.sum(nose_df.within50mm)
+        frames_within_50mm.append(summed_val)
         fraction_frames_within_50mm.append(summed_val/len(nose_df))
         fraction_LIGHT_frames_in_center.append((frames_with_nose-summed_val)/frames_with_nose)
         fraction_LIGHT_frames_within_50mm.append(summed_val/frames_with_nose)
@@ -258,6 +265,7 @@ if __name__ == "__main__":
                 aligned_df.iloc[idx,-1]=bout_num
         num_entrances.append(np.max(aligned_df.light_bout_num))
 
+
         # plot inside and outside the walls
         plt.scatter(nose_df.x,nose_df.y,s=1,c='k')
         plt.scatter(nose_df.x[nose_df.x<50],nose_df.y[nose_df.x<50],c='pink',s=1)
@@ -268,7 +276,8 @@ if __name__ == "__main__":
         plt.scatter(nose_df.x[nose_df.x>500],nose_df.y[nose_df.x>500],c='r',s=1)
         plt.scatter(nose_df.x[nose_df.y<0],nose_df.y[nose_df.y<0],c='r',s=1)
         plt.scatter(nose_df.x[nose_df.y>500],nose_df.y[nose_df.y>500],c='r',s=1)
-        plt.savefig('../data/results/'+sub_file_name+"_all-points_color_within50mm.png")
+        plt.savefig(os.path.join('..','data','results',sub_file_name+"_all-points_color_within50mm.png"))
+        plt.close()
 
         print('===== done collecting summary data for {}, now predicting jumps'.format(sub_file_name))
 
@@ -284,8 +293,6 @@ if __name__ == "__main__":
         aligned_df['speed']=float(0)
 
         for idx in aligned_df.index:
-            if idx%1000==0:
-                print("on idx {} of {}".format(idx,aligned_df.index[-1]))
             rel_idx = idx-aligned_df.index[0]
             if rel_idx > 0:
                 speed = math.dist([aligned_df.nose.x[idx],aligned_df.nose.y[idx]],[aligned_df.nose.x[idx-1],aligned_df.nose.y[idx-1]])
@@ -300,10 +307,11 @@ if __name__ == "__main__":
             aligned_df.iloc[rel_idx,-7]=math.dist([aligned_df.nose.x[idx],aligned_df.nose.y[idx]],[aligned_df.paw_left_back.x[idx],aligned_df.paw_left_back.y[idx]])
             aligned_df.iloc[rel_idx,-8]=math.dist([aligned_df.nose.x[idx],aligned_df.nose.y[idx]],[aligned_df.ear_left.x[idx],aligned_df.ear_left.y[idx]])
             aligned_df.iloc[rel_idx,-9]=math.dist([aligned_df.nose.x[idx],aligned_df.nose.y[idx]],[aligned_df.ear_right.x[idx],aligned_df.ear_right.y[idx]])
-        aligned_df.to_csv('../data/results/'+sub_file_name+"_aligned_dists.csv")
+        aligned_df.to_csv(os.path.join('..','data','results',sub_file_name+"_aligned_dists.csv"))
+        print("===== aligned df saved out, on to predicting jumps")
 
         # select these columns for predicting jumps (used for training)
-        df_for_prediction=pd.concat([aligned_df['nose']['x'],aligned_df['nose','y'],aligned_df['nose']['likelihood'],aligned_df['tail_base']['likelihood'],aligned_df['tail_tip']['likelihood'],aligned_df['new_speed']],axis=1)
+        df_for_prediction=pd.concat([aligned_df['nose']['x'],aligned_df['nose','y'],aligned_df['nose']['likelihood'],aligned_df['tail_base']['likelihood'],aligned_df['tail_tip']['likelihood'],aligned_df['speed']],axis=1)
         df_for_prediction.columns=['nose_x','nose_y','nose_likelihood','tail_base_likelihood','tail_tip_likelihood','speed']
 
         # rescale only the large value columns, so all columns are between 0, 1
@@ -316,32 +324,45 @@ if __name__ == "__main__":
         plt.scatter(aligned_df.nose.x,aligned_df.nose.y,c=preds_to_plot,cmap="Blues",s=5,alpha=.4)
         plt.clim([-1,1])
         plt.title('predicted in dark blue')
-        plt.savefig('../data/results/'+sub_file_name+'predicted_jumps.png')
+        plt.savefig(os.path.join('..','data','results',sub_file_name+'_predicted_jumps.png'))
+        plt.close()
 
         # get jump bout numbers then save out prediction csv
-        jump_bouts = [0]
+        # but combine jumps if they are closer than 2 frames
+        jump_bouts = np.zeros(len(preds_to_plot))
         bout_num=0
-        for idx in np.arange(1,len(preds_to_plot)):
-            if preds_to_plot[idx]==0:
-                jump_bouts.append(0)
-            elif preds_to_plot(idx-1)==0:
-                bout_num+=1
-                jump_bouts.append(bout_num)
-            else:
-                jump_bouts.append(bout_num)
+        for idx in np.arange(2,len(preds_to_plot)):
+            if preds_to_plot[idx]==1:
+                if preds_to_plot[idx-1]==0 and preds_to_plot[idx-2]==0:
+                    bout_num+=1
+                jump_bouts[idx]=bout_num
 
+        # now remove jumps that don't have at least 4 frames
+        vals_to_rm=[]
+        bout_num=0
+        jump_bouts_list=list(jump_bouts)
+        for val in np.unique(jump_bouts):
+            if jump_bouts_list.count(val) < 4:
+                vals_to_rm.append(val)
+        for idx in np.arange(0,len(jump_bouts)):
+            if jump_bouts[idx] in vals_to_rm:
+                jump_bouts[idx]=0
+
+        # get the number of unique 4+ length jumps
+        num_jumps.append(len(np.unique(jump_bouts)))
         prediction = aligned_df.copy()
         prediction['predicted_jumps']=preds_to_plot
         prediction['jump_bouts']=jump_bouts
-        prediction.to_csv('../data/results/'+sub_file_name+"_predictions.csv")
+        prediction.to_csv(os.path.join('..','data','results',sub_file_name+"_predictions.csv"))
         print('===== finished all analysis for {}, starting next file'.format(sub_file_name))
 
 
     # make a dataframe with all summary data, save as csv
     column_vals=['sub_file_name','total_frames','num_entrances','first_frame_in_center','frames_with_nose','frames_with_head','frames_with_body','frames_within_50mm','fraction_frames_within_50mm','fraction_LIGHT_frames_within_50mm','fraction_LIGHT_frames_in_center','num_jumps']
-    zipped=list(zip(full_path_list,total_frames,num_entrances,first_frame_in_center,frames_with_nose,frames_with_head,frames_with_body,frames_within_50mm, fraction_frames_within_50mm,fraction_LIGHT_frames_within_50mm,fraction_LIGHT_frames_in_center,num_jumps))
+    print(full_path_list,total_frames,num_entrances,first_frame_in_center,frames_with_nose,frames_with_head,frames_with_body,frames_within_50mm, fraction_frames_within_50mm,fraction_LIGHT_frames_within_50mm,fraction_LIGHT_frames_in_center,num_jumps)
+    zipped=zip(full_path_list,total_frames,num_entrances,first_frame_in_center,frames_with_nose,frames_with_head,frames_with_body,frames_within_50mm, fraction_frames_within_50mm,fraction_LIGHT_frames_within_50mm,fraction_LIGHT_frames_in_center,num_jumps)
     summary_df=pd.DataFrame(zipped,columns=column_vals)
-    summary_df.to_csv('../data/results/'+sub_file_name+"_summary.csv")
+    summary_df.to_csv(os.path.join('..','data','results',sub_file_name+"_summary.csv"))
 
 
 
