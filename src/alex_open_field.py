@@ -14,7 +14,13 @@ HARDCODED:
     - FPS is 29.93s, change at top of main
 
 OUTPUTS:
-several plots and csv files in the ../data/results folder and makes that folder if it does not yet exist"""
+several plots and csv files in the ../data/results folder and makes that folder if it does not yet exist
+
+EXAMPLE CALL:
+(if working directory is ejd_fieldwork/src:)
+python alex_open_field /home/dennislab/Desktop/folder_of_DLC_files ../data/20221219_RF_jumps.pkl ../data/trim_times.csv
+
+"""
 
 __author__ = "ejd"
 __credits__ = ["ejd"]
@@ -217,7 +223,6 @@ if __name__ == "__main__":
         plt.close()
 
         # GET SUMMARY DATA
-        # TODO SAVE OUT AS CSV FFTER LOOP
         nose_vals = ~np.isnan(aligned_df.nose['x'])
         ear_l_vals = ~np.isnan(aligned_df.ear_left['x'])
         ear_r_vals = ~np.isnan(aligned_df.ear_right['x'])
@@ -364,7 +369,7 @@ if __name__ == "__main__":
     summary_df=pd.DataFrame(zipped,columns=column_vals)
     summary_df.to_csv(os.path.join('..','data','results',sub_file_name+"_summary.csv"))
 
-
+# add rename summary
 
 
 
