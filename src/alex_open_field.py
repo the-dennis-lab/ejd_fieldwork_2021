@@ -133,6 +133,7 @@ if __name__ == "__main__":
     num_entrances=[]
     total_frames=[]
     num_jumps=[]
+    num_rears=[]
     first_nose_in_box=[]
     first_head_in_box=[]
     first_body_in_box=[]
@@ -140,10 +141,6 @@ if __name__ == "__main__":
 
     if not os.path.isdir('../data/results'):
         os.mkdir('../data/results')
-
-    print('===== printing sysargvs')
-    print(sys.argv)
-    print('===== end ')
 
     # arg parser
     file_or_folder=sys.argv[1]
@@ -158,10 +155,10 @@ if __name__ == "__main__":
 
     if len(sys.argv) > 2 and os.path.isfile(sys.argv[2]):
         trained_file = sys.argv[2]
-    elif os.path.isfile('../data/20221219_RF_jumps.pkl'):
-        trained_file = '../data/20221219_RF_jumps.pkl'
+    elif os.path.isfile('../data/20230216_RF_jumps.pkl'):
+        trained_file = '../data/20230216_RF_jumps.pkl'
     else:
-        print('there is no trained .pb file in ../data and you did not provide a path to one. Please provide a path to one')
+        print('there is no trained .pkl file in ../data and you did not provide a path to one. Please provide a path to one')
 
     # we may want to subset our DLC-run videos by some csv file
     to_subset=0
@@ -376,6 +373,9 @@ if __name__ == "__main__":
             nanmean_ys=np.zeros(len(aligned_df))
             animal_dist_traveled=np.zeros(len(aligned_df))
 
+            entrance_x=np.nanmean([np.nanmedian(aligned_df.opening_top.x),np.nanmedian(aligned_df.opening_bottom.x[idx])])
+            entrance_y=np.nanmean([np.nanmedian(aligned_df.opening_top.y),np.nanmedian(aligned_df.opening_bottom.y[idx])])
+
             ind_idx=-1
             for idx in aligned_df.index:
                 ind_idx+=1
@@ -407,8 +407,6 @@ if __name__ == "__main__":
                 aligned_df.iloc[rel_idx,-7]=math.dist([aligned_df.nose.x[idx],aligned_df.nose.y[idx]],[aligned_df.paw_left_back.x[idx],aligned_df.paw_left_back.y[idx]])
                 aligned_df.iloc[rel_idx,-8]=math.dist([aligned_df.nose.x[idx],aligned_df.nose.y[idx]],[aligned_df.ear_left.x[idx],aligned_df.ear_left.y[idx]])
                 aligned_df.iloc[rel_idx,-9]=math.dist([aligned_df.nose.x[idx],aligned_df.nose.y[idx]],[aligned_df.ear_right.x[idx],aligned_df.ear_right.y[idx]])
-                entrance_x=np.nanmean([aligned_df.opening_top.x[idx],aligned_df.opening_bottom.x[idx]])
-                entrance_y=np.nanmean([aligned_df.opening_top.y[idx],aligned_df.opening_bottom.y[idx]])
                 aligned_df.iloc[rel_idx,-10]=math.dist([aligned_df.nose.x[idx],aligned_df.nose.y[idx]],[entrance_x,entrance_y])
             aligned_df['inter_light_bout']=inter_light_interval
             aligned_df['nanmean_x']=nanmean_xs
@@ -423,13 +421,24 @@ if __name__ == "__main__":
             except:
                 print('cannot find aligned_df file for step 4 at {}'.format(os.path.join('..','data','results',sub_file_name+"_aligned_dists.csv")))
             # select these columns for predicting jumps (used for training)
-            df_for_prediction=pd.concat([aligned_df['nose']['x'],aligned_df['nose','y'],aligned_df['nose']['likelihood'],aligned_df['tail_base']['likelihood'],aligned_df['tail_tip']['likelihood'],aligned_df['speed']],axis=1)
-            df_for_prediction.columns=['nose_x','nose_y','nose_likelihood','tail_base_likelihood','tail_tip_likelihood','speed']
+            df_for_prediction=pd.concat([aligned_df['nose']['x'],aligned_df['nose','y'],aligned_df['nose']['likelihood'],aligned_df['tail_base']['likelihood'],aligned_df['paw_left_back']['likelihood'],aligned_df['paw_right_back']['likelihood'],aligned_df['dists']['nose_midpoint_entrance'],aligned_df['dists']['nose_tail_base'],aligned_df['speed']],axis=1)
+            df_for_prediction.columns=['nose_x','nose_y','nose_likelihood','tail_base_likelihood','paw_lb_likelihood','paw_rb_likelihood','dists_fromentrance','dists_nose_tail_base','speed']
+            try:
+                cols=aligned_df.animal_dist_traveled.columns[0]
+                animal_dist_traveled=aligned_df.animal_dist_traveled[cols]
+            except:
+                animal_dist_traveled=aligned_df['animal_dist_traveled']
+
 
             # rescale only the large value columns, so all columns are between 0, 1
-            for col in ['nose_x','nose_y','speed']:
-                    maxval=np.nanmax(df_for_prediction[col])
-                    df_for_prediction[col]=df_for_prediction[col]/np.nanmax(df_for_prediction[col])
+            for col in ['nose_x','nose_y','dists_fromentrance','dists_nose_tail_base','speed']:
+                min_val=np.nanmin(df_for_prediction[col])
+                if min_val < 0:
+                    add_val=np.abs(min_val)
+                else:
+                    add_val=0
+                maxval=np.nanmax(df_for_prediction[col])
+                df_for_prediction[col]=np.add(df_for_prediction[col],add_val)/np.nanmax(df_for_prediction[col])
 
             preds_to_plot=clf.predict(df_for_prediction.fillna(0))
 
@@ -442,22 +451,36 @@ if __name__ == "__main__":
             # get jump bout numbers then save out prediction csv
             # but combine jumps if they are closer than 2 frames
             jump_bouts = np.zeros(len(preds_to_plot))
-            bout_num=0
-            for idx in np.arange(2,len(preds_to_plot)):
-                if preds_to_plot[idx]==1:
-                    if preds_to_plot[idx-1]==0 and preds_to_plot[idx-2]==0:
-                        bout_num+=1
-                    jump_bouts[idx]=bout_num
+            jump_bout_num=0
+            rear_bouts = np.zeros(len(preds_to_plot))
+            rear_bout_num=0
 
+            for idx in np.arange(4,len(preds_to_plot)):
+                if preds_to_plot[idx]==1:
+                    if 1 not in np.unique(preds_to_plot[idx-4:idx]):
+                        jump_bout_num+=1
+                    jump_bouts[idx]=jump_bout_num
+                elif preds_to_plot[idx]==2:
+                    if 2 not in np.unique(preds_to_plot[idx-4:idx]):
+                        rear_bout_num+=1
+                    rear_bouts[idx]=rear_bout_num
 
             # now remove jumps that don't have at least 4 frames
             # and get inter-jump-bouts
             vals_to_rm=[]
+            rear_vals_to_rm=[]
             animal_dist_traveled_without_jumps=np.abs(animal_dist_traveled.copy())
-            bout_num=0
             jump_bouts_list=list(jump_bouts)
-            inter_jump_bout_num=1
+            rear_bouts_list=list(rear_bouts)
+            inter_jump_bout_num=0
             inter_jump_bouts=np.zeros(len(preds_to_plot))
+            for val in np.unique(rear_bouts):
+                if rear_bouts_list.count(val) < 4:
+                    rear_vals_to_rm.append(val)
+            for idx in np.arange(0,len(rear_bouts)):
+                if rear_bouts[idx] in rear_vals_to_rm:
+                    rear_bouts[idx]=0
+
             for val in np.unique(jump_bouts):
                 if jump_bouts_list.count(val) < 4:
                     vals_to_rm.append(val)
@@ -474,15 +497,13 @@ if __name__ == "__main__":
 
             # get the number of unique 4+ length jumps
             num_jumps.append(len(np.unique(jump_bouts)))
+            num_rears.append(len(np.unique(rear_bouts)))
             prediction = aligned_df.copy()
             prediction['predicted_jumps']=preds_to_plot
             prediction['jump_bouts']=jump_bouts
+            prediction['rear_bouts']=rear_bouts
 
             # get distance traveled under different jump inclusion/exclusions
-            dists_euc = np.zeros(len(preds_to_plot))
-            dists_no_jumps = np.zeros(len(preds_to_plot))
-            dists_jump_start_end = np.zeros(len(preds_to_plot))
-            animal_position_nanmean = np.zeros(len(preds_to_plot))
             prediction['inter_jump_bouts']=inter_jump_bouts
 
             # make inter jump bout plot
@@ -496,10 +517,9 @@ if __name__ == "__main__":
             prediction.to_csv(os.path.join('..','data','results',sub_file_name+"_predictions.csv"))
             print('===== finished all analysis for {}, saving intermediate summary data then starting next file'.format(sub_file_name))
 
-
             # make a dataframe with all summary data, save as csv
-            column_vals=['sub_file_name','total_frames','num_entrances','first_frame_with_nose','first_frame_with_head','first_frame_with_body','first_frame_in_center','frames_with_nose','frames_with_head','frames_with_body','frames_within_50mm','fraction_frames_within_50mm','fraction_LIGHT_frames_within_50mm','fraction_LIGHT_frames_in_center','num_jumps','sum_dist_without_jumps']
-            zipped=zip(full_path_list,total_frames,num_entrances,first_nose_in_box,first_head_in_box,first_body_in_box,first_frame_in_center,frames_with_nose,frames_with_head,frames_with_body,frames_within_50mm, fraction_frames_within_50mm,fraction_LIGHT_frames_within_50mm,fraction_LIGHT_frames_in_center,num_jumps,sum_dist_without_jumps)
+            column_vals=['sub_file_name','total_frames','num_entrances','first_frame_with_nose','first_frame_with_head','first_frame_with_body','first_frame_in_center','frames_with_nose','frames_with_head','frames_with_body','frames_within_50mm','fraction_frames_within_50mm','fraction_LIGHT_frames_within_50mm','fraction_LIGHT_frames_in_center','num_jumps','sum_dist_without_jumps','num_rears']
+            zipped=zip(full_path_list,total_frames,num_entrances,first_nose_in_box,first_head_in_box,first_body_in_box,first_frame_in_center,frames_with_nose,frames_with_head,frames_with_body,frames_within_50mm, fraction_frames_within_50mm,fraction_LIGHT_frames_within_50mm,fraction_LIGHT_frames_in_center,num_jumps,sum_dist_without_jumps,num_rears)
             summary_df=pd.DataFrame(zipped,columns=column_vals)
             summary_df.to_csv(os.path.join('..','data','results',today.strftime("%Y-%m-%d-%H%M%S")+"_summary.csv"))
 if step==0 or step==4:
