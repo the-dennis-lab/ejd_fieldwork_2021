@@ -430,15 +430,25 @@ if __name__ == "__main__":
                 animal_dist_traveled=aligned_df['animal_dist_traveled']
 
 
-            # rescale only the large value columns, so all columns are between 0, 1
-            for col in ['nose_x','nose_y','dists_fromentrance','dists_nose_tail_base','speed']:
+            # rescale appropriately
+            for col in ['nose_x','nose_y','dists_fromentrance']
                 min_val=np.nanmin(df_for_prediction[col])
                 if min_val < 0:
                     add_val=np.abs(min_val)
                 else:
                     add_val=0
-                maxval=np.nanmax(df_for_prediction[col])
-                df_for_prediction[col]=np.add(df_for_prediction[col],add_val)/np.nanmax(df_for_prediction[col])
+                df_for_prediction[col]=np.add(df_for_prediction[col],add_val)/500
+
+            for col in ['dists_nose_tail_base','speed']:
+                min_val = np.nanmin(df_for_prediction[col])
+                add_val = 0
+                if min_val < 0:
+                    add_val=np.abs(min_val)
+                max_val = np.nanmax(df_for_prediction[col])+add_val
+                df_for_prediction[col]=np.add(df_for_prediction[col],add_val)/100
+
+
+
 
             preds_to_plot=clf.predict(df_for_prediction.fillna(0))
 
