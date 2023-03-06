@@ -449,6 +449,23 @@ if __name__ == "__main__":
                     maxval=np.nanmax(df_for_prediction[col])
                     df_for_prediction[col]=np.add(df_for_prediction[col],add_val)/np.nanmax(df_for_prediction[col])
 
+            # rescale appropriately
+                #for col in ['nose_x','nose_y','dists_fromentrance']
+                #    min_val=np.nanmin(df_for_prediction[col])
+                #    if min_val < 0:
+                #        add_val=np.abs(min_val)
+                #    else:
+                #        add_val=0
+                #    df_for_prediction[col]=np.add(df_for_prediction[col],add_val)/500
+
+                #for col in ['dists_nose_tail_base','speed']:
+                #    min_val = np.nanmin(df_for_prediction[col])
+                #    add_val = 0
+                #    if min_val < 0:
+                #        add_val=np.abs(min_val)
+                #    max_val = np.nanmax(df_for_prediction[col])+add_val
+                #    df_for_prediction[col]=np.add(df_for_prediction[col],add_val)/100
+
             preds_to_plot=clf.predict(df_for_prediction.fillna(0))
 
             plt.scatter(aligned_df.nose.x,aligned_df.nose.y,c=preds_to_plot,cmap="Blues",s=5,alpha=.4)
