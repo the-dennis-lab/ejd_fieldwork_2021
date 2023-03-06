@@ -5,11 +5,13 @@ REQUIRED INPUTS:
 OPTIONAL INPUTS:
     2. a trained .pkl file or tries to find one in ../data.
     3. a csv that has 'trim times' for videos that do not start at the 'correct' moment (camera started early)
-    4. a step #.
+    4. a step number (int)
         #0 for all steps,
         #1 loads DLC file & reformats: smooths and removes low confidence points
         #2 takes existing smoothed file, loads, and aligns to box with coordinates 0,0 0,500 500,0 500,500
         #3 for taking existing adjusted points file, loading, and
+        #4 for running the prediction on aligned, adjusted files
+    5. rescale (0 or 1)- if rescaling some columns, set to 1, default is 0
 HARDCODED:
     a few things are currently hardcoded for convenience.
     - If using a file to subset the dataframes by start/end time,
@@ -191,6 +193,11 @@ if __name__ == "__main__":
     else:
         step=0 # run all
 
+    rescale=0
+    if len(sys.argv) > 5 and sys.argv[5]==1:
+        rescale = 1
+    else:
+        print('not rescaling')
     # load pickle trained file
     clf = joblib.load(trained_file)
 
@@ -204,7 +211,7 @@ if __name__ == "__main__":
         print('on {}'.format(filename))
         sub_file_name=os.path.basename(filename)[0:19]
 
-        if step <2:
+        if step == 1:
             print('on step 1/4')
             # load df from DLC, reformat with smoothing
             df = pd.read_csv(filename,header=[1,2])
@@ -234,6 +241,7 @@ if __name__ == "__main__":
 
         if step==0 or step==2:
             try:
+                new_df=pd.read_csv(filename[0:-4]+"_adj.csv",header=[0,1])
                 new_df = pd.read_csv(os.path.join('..','data','results',sub_file_name+"_adj.csv"),header=[0,1])
             except:
                 print('aligned dataframe not found at {}'.format(os.path.join('..','data','results',sub_file_name+"_adj.csv")))
@@ -430,15 +438,16 @@ if __name__ == "__main__":
                 animal_dist_traveled=aligned_df['animal_dist_traveled']
 
 
-            # rescale only the large value columns, so all columns are between 0, 1
-            for col in ['nose_x','nose_y','dists_fromentrance','dists_nose_tail_base','speed']:
-                min_val=np.nanmin(df_for_prediction[col])
-                if min_val < 0:
-                    add_val=np.abs(min_val)
-                else:
-                    add_val=0
-                maxval=np.nanmax(df_for_prediction[col])
-                df_for_prediction[col]=np.add(df_for_prediction[col],add_val)/np.nanmax(df_for_prediction[col])
+            # if rescaling, rescale only the large value columns, so all columns are between 0, 1
+            if rescale:
+                for col in ['nose_x','nose_y','dists_fromentrance','dists_nose_tail_base','speed']:
+                    min_val=np.nanmin(df_for_prediction[col])
+                    if min_val < 0:
+                        add_val=np.abs(min_val)
+                    else:
+                        add_val=0
+                    maxval=np.nanmax(df_for_prediction[col])
+                    df_for_prediction[col]=np.add(df_for_prediction[col],add_val)/np.nanmax(df_for_prediction[col])
 
             preds_to_plot=clf.predict(df_for_prediction.fillna(0))
 
