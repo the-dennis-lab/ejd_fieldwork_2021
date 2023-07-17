@@ -31,7 +31,7 @@ __status__ = "Development"
 
 import numpy as np
 import pandas as pd
-import glob, os, csv, sys, cv2, math, itertools, joblib, datetime
+import glob, os, csv, sys, cv2, math, itertools, joblib, datetime, warnings
 import matplotlib.pyplot as plt
 from sklearn.model_selection import train_test_split
 from scipy.io import arff
@@ -39,6 +39,8 @@ from sklearn.neighbors import KNeighborsClassifier
 from sklearn.metrics import classification_report, confusion_matrix
 import seaborn as sns
 from sklearn.ensemble import RandomForestClassifier
+
+warnings.simplefilter('once')
 
 
 def reformat_df(df,likelihood_val,max_px_value,frame_limit_val,seconds,fps):
