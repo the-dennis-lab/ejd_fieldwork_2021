@@ -1,25 +1,31 @@
+import pandas as pd
+import numpy as np
+import glob, os, sys, math, warnings, argparse, time, cv2, pytesseract, re
+import utils
+
+
 def check_for_df(full_filename):
     """check to see if this folder has a csv file, if so, use it if it has the correct formatting"""
     if ".csv" in full_filename:
         df=pd.read_csv(full_filename)
         if "video" not in df.columns:
             print('error: there is a csv file without the proper structure in the video folder')
-            
+
 
 def get_video_descriptions(df, folder_or_avi):
-    """ takes either an AVI or folder of AVIs as input 
+    """ takes either an AVI or folder of AVIs as input
     and retrieves the csv/dataframe of descriptions extracted
     from a frame of the video/the footer with temp/date/time"""
     if "AVI" in folder_or_avi[-4:] or "avi" in folder_or_avi[:-4]:
         print('an AVI, not a folder')
-        df=text_parsing(df,video_to_text(full_path,[545,675,1280,720]))
+        df=text_parsing(df,video_to_text(full_path,[820,1020,1920,1080]))#[545,675,1280,720]))
     else:
         print("this is a folder")
         for file in os.listdir(folder_or_avi):
             if "AVI" in file:
                 full_path = os.path.join(folder_or_avi,file)
                 print("printing full_path in folder loop: {}".format(full_path))
-                df=text_parsing(df,video_to_text(full_path,[545,675,1280,720]))
+                df=text_parsing(df,video_to_text(full_path,[820,1020,1920,1080]))
     return df
 
 
@@ -51,12 +57,13 @@ def video_to_text(video_path,rectangle_values):
 
 
 def text_parsing(df,text):
-    """this fx takes in a dataframe and text string, 
+    """this fx takes in a dataframe and text string,
     and parses the information to fill the dataframe appropriately"""
     textlist = text.split()
     print("textlist is {}".format(textlist))
     # parse string into a data structure
     data={}
+    print(textlist)
     data['video']=video_path.split('/')[-1]
     for substr_index in np.arange(len(textlist)):
         substr=textlist[substr_index]

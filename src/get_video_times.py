@@ -23,7 +23,7 @@ if __name__ == "__main__":
         fld=str(sys.argv[1])
         if fld[-4:].upper()==".AVI":
             fld = os.path.dirname(fld)
-        if ~os.path.isdir(fld):
+        if not os.path.isdir(fld):
             print('the folder {} in the path does not exist, check your path'.format(fld))
     except:
         print("this function requires two inputs: the first must be ",
@@ -35,7 +35,8 @@ if __name__ == "__main__":
         if csv_output[-4:].lower() != ".csv":
             csv_output = csv_output+"_timestamps.csv"
     except:
-        print("this function requires two inpus, the second input must be a file ",
+        print("this function requires two inputs, the second input must be a file ",
         "name in a location that exists")
     df = pd.DataFrame(columns=['video','date','time','C','F'])
-    utils.get_video_descriptions(df, fld, csv_output)
+    new_df = utils.get_video_descriptions(df, fld)
+    new_df.to_csv(csv_output)
