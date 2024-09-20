@@ -113,7 +113,7 @@ if __name__ == "__main__":
     if chunk_remainder > 0:
         if chunk_remainder > 1:
             pool = multiprocessing.Pool(36)
-            pool.starmap(get_ncbi,get_input_list([file for file in file_paths[int(-1*(remainder-1)):]],output_fld))
+            pool.starmap(get_ncbi,get_input_list([file for file in file_paths[int(-1*(chunk_remainder-1)):]],output_fld))
         else:
             pool = multiprocessing.Pool(36)
             get_ncbi(file_paths[-1], output_fld)
