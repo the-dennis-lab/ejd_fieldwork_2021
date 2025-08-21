@@ -1,0 +1,11 @@
+[project]
+authors = ["Dennis EJ <emilyjanedennis@gmail.com>"]
+channels = ["conda-forge"]
+name = "ejd_fieldwork_2021"
+platforms = ["win-64"]
+version = "0.1.0"
+
+[tasks]
+
+[dependencies]
+python = ">=3.13.2,<3.14"
