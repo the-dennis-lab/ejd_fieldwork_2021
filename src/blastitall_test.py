@@ -28,47 +28,101 @@ from thefuzz import fuzz
 from itertools import compress
 import multiprocessing
 
-def process_seqlist(all_seqs,prefilename):
-    ''' helping chunk '''
-    list_of_seqs_lens=[]
-    list_of_seqs=[]
-    print('starting while loop')
-    if os.path.exists(prefilename[:-4]+'_temp_ALLSEQS.npy'):
+from collections import defaultdict
+
+def encode(seq):
+        return table[np.frombuffer(seq.encode(), dtype=np.uint8)]
+
+
+def process_seqlist(all_seqs, prefilename,
+                    max_mismatch=5,
+                    anchors=(0, 10, 25, 50, 75),
+                    checkpoint_every=5000):
+    """
+    Hamming-based clustering with checkpointing.
+    Preserves original outputs and logic.
+    """
+
+    # --- DNA encoding ---
+    table = np.full(256, 4, dtype=np.uint8)
+    table[ord('A')] = 0
+    table[ord('C')] = 1
+    table[ord('G')] = 2
+    table[ord('T')] = 3
+    table[ord('N')] = 4
+
+    # --- restore checkpoint if present ---
+    list_of_seqs = []
+    list_of_seqs_lens = []
+
+    if os.path.exists(prefilename[:-4] + '_temp_ALLSEQS.npy'):
         print('loading existing temp file')
-        all_seqs=np.load(prefilename[:-4]+'_temp_ALLSEQS.npy')
-        predf=pd.read_csv(prefilename[:-4]+'_temp.csv')
-        list_of_seqs=list(predf.list_of_seqs)
-        list_of_seqs_lens=list(predf.n_similar)
-        print('list ',len(list_of_seqs),'lens ',len(list_of_seqs_lens),'all seqs', len(all_seqs))
-    filelen=len(all_seqs)
-    if len(all_seqs)!=0:
-        while len(all_seqs)>1:
-            if len(all_seqs)%100==0:
-                print('on {} of {}'.format(len(all_seqs),filelen))
-                predf=pd.DataFrame()
-                predf['list_of_seqs']=list_of_seqs
-                predf['n_similar']=list_of_seqs_lens
-                predf['groups']=0
-                np.save(prefilename[:-4]+'_temp_ALLSEQS.npy',np.array(all_seqs))
-                predf.to_csv(prefilename[:-4]+'_temp.csv')
-            seq = all_seqs[0]# add a sequence
-            bool_list=[]
-            for i in np.arange(0,len(all_seqs)):
-            # if 97% or better match, add a number for the n_val
-                        if fuzz.ratio(seq,all_seqs[i]) >95:
-                             bool_list.append(False)
-                        else:
-                            bool_list.append(True)
-            num_of_seqs = len(bool_list) - np.sum(bool_list)
+        encoded = np.load(prefilename[:-4] + '_temp_ALLSEQS.npy')
+        predf = pd.read_csv(prefilename[:-4] + '_temp.csv')
+        list_of_seqs = list(predf.list_of_seqs)
+        list_of_seqs_lens = list(predf.n_similar)
+    else:
+        encoded = np.array([encode(s) for s in all_seqs], dtype=np.uint8)
+
+    total = len(encoded)
+    used = np.zeros(len(encoded), dtype=bool)
+
+    print(f"starting hamming clustering on {total} sequences")
+
+    # --- build anchor buckets ---
+    buckets = defaultdict(list)
+    for i, seq in enumerate(encoded):
+        key = tuple(seq[a] for a in anchors)
+        buckets[key].append(i)
+
+    processed = 0
+
+    # --- process each bucket ---
+    for bucket_idx, indices in enumerate(buckets.values()):
+        indices = np.array(indices, dtype=int)
+
+        for idx in indices:
+            if used[idx]:
+                continue
+
+            ref = encoded[idx]
+
+            # Hamming distance ignoring Ns
+            diffs = (encoded[indices] != ref) & (encoded[indices] != 4) & (ref != 4)
+            mismatches = np.sum(diffs, axis=1)
+
+            close_mask = mismatches <= max_mismatch
+            close_indices = indices[close_mask]
+
+            num_of_seqs = len(close_indices)
+
             if num_of_seqs > 15:
-                       list_of_seqs.append(seq)
-                       list_of_seqs_lens.append(num_of_seqs)
-            all_seqs= list(compress(all_seqs,bool_list))
-    predf=pd.DataFrame()
-    predf['list_of_seqs']=list_of_seqs
-    predf['n_similar']=list_of_seqs_lens
-    predf['groups']=0
-    predf.to_csv(prefilename)
+                list_of_seqs.append(''.join('ACGTN'[b] for b in ref))
+                list_of_seqs_lens.append(num_of_seqs)
+
+            used[close_indices] = True
+            processed += len(close_indices)
+
+            # --- checkpointing ---
+            if processed % checkpoint_every == 0:
+                print(f"processed {processed} / {total}")
+                np.save(prefilename[:-4] + '_temp_ALLSEQS.npy', encoded[~used])
+
+                predf = pd.DataFrame({
+                    'list_of_seqs': list_of_seqs,
+                    'n_similar': list_of_seqs_lens,
+                    'groups': 0
+                })
+                predf.to_csv(prefilename[:-4] + '_temp.csv', index=False)
+
+    # --- final save ---
+    predf = pd.DataFrame({
+        'list_of_seqs': list_of_seqs,
+        'n_similar': list_of_seqs_lens,
+        'groups': 0
+    })
+    predf.to_csv(prefilename, index=False)
+
     return predf
 
 def get_ncbi(file_path, output_fld):
