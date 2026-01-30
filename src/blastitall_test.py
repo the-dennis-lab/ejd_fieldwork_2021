@@ -133,14 +133,18 @@ def process_seqlist(all_seqs, prefilename,
             # --- checkpoint ---
             if processed % checkpoint_every == 0:
                 print(f"processed {processed} / {total}")
-                np.save(temp_npy, encoded[~used])
 
+                # save remaining sequences
+                np.save(temp_npy, [all_seqs[i] for i, u in enumerate(~used) if not u])
+
+                # save current list_of_seqs and counts
                 predf = pd.DataFrame({
                     'list_of_seqs': list_of_seqs,
                     'n_similar': list_of_seqs_lens,
-                    'groups': 0
+                    'groups': 0  # placeholder for groups
                 })
                 predf.to_csv(temp_csv, index=False)
+
 
     # --- final output ---
     predf = pd.DataFrame({
