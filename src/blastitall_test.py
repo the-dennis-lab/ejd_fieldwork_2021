@@ -29,21 +29,17 @@ from itertools import compress
 import multiprocessing
 
 from collections import defaultdict
-
-def encode(seq):
-        return table[np.frombuffer(seq.encode(), dtype=np.uint8)]
-
+import numpy as np
+import pandas as pd
+import os
+from collections import defaultdict
 
 def process_seqlist(all_seqs, prefilename,
                     max_mismatch=5,
                     anchors=(0, 10, 25, 50, 75),
                     checkpoint_every=5000):
-    """
-    Hamming-based clustering with checkpointing.
-    Preserves original outputs and logic.
-    """
 
-    # --- DNA encoding ---
+    # --- DNA encoding table (FIXED) ---
     table = np.full(256, 4, dtype=np.uint8)
     table[ord('A')] = 0
     table[ord('C')] = 1
@@ -51,25 +47,31 @@ def process_seqlist(all_seqs, prefilename,
     table[ord('T')] = 3
     table[ord('N')] = 4
 
-    # --- restore checkpoint if present ---
+    def encode(seq):
+        return table[np.frombuffer(seq.encode(), dtype=np.uint8)]
+
     list_of_seqs = []
     list_of_seqs_lens = []
 
-    if os.path.exists(prefilename[:-4] + '_temp_ALLSEQS.npy'):
+    # --- restore checkpoint if present ---
+    temp_npy = prefilename[:-4] + '_temp_ALLSEQS.npy'
+    temp_csv = prefilename[:-4] + '_temp.csv'
+
+    if os.path.exists(temp_npy) and os.path.exists(temp_csv):
         print('loading existing temp file')
-        encoded = np.load(prefilename[:-4] + '_temp_ALLSEQS.npy')
-        predf = pd.read_csv(prefilename[:-4] + '_temp.csv')
+        encoded = np.load(temp_npy)
+        predf = pd.read_csv(temp_csv)
         list_of_seqs = list(predf.list_of_seqs)
         list_of_seqs_lens = list(predf.n_similar)
     else:
         encoded = np.array([encode(s) for s in all_seqs], dtype=np.uint8)
 
     total = len(encoded)
-    used = np.zeros(len(encoded), dtype=bool)
+    used = np.zeros(total, dtype=bool)
 
     print(f"starting hamming clustering on {total} sequences")
 
-    # --- build anchor buckets ---
+    # --- anchor buckets ---
     buckets = defaultdict(list)
     for i, seq in enumerate(encoded):
         key = tuple(seq[a] for a in anchors)
@@ -77,8 +79,8 @@ def process_seqlist(all_seqs, prefilename,
 
     processed = 0
 
-    # --- process each bucket ---
-    for bucket_idx, indices in enumerate(buckets.values()):
+    # --- clustering ---
+    for indices in buckets.values():
         indices = np.array(indices, dtype=int)
 
         for idx in indices:
@@ -87,7 +89,6 @@ def process_seqlist(all_seqs, prefilename,
 
             ref = encoded[idx]
 
-            # Hamming distance ignoring Ns
             diffs = (encoded[indices] != ref) & (encoded[indices] != 4) & (ref != 4)
             mismatches = np.sum(diffs, axis=1)
 
@@ -103,19 +104,19 @@ def process_seqlist(all_seqs, prefilename,
             used[close_indices] = True
             processed += len(close_indices)
 
-            # --- checkpointing ---
+            # --- checkpoint ---
             if processed % checkpoint_every == 0:
                 print(f"processed {processed} / {total}")
-                np.save(prefilename[:-4] + '_temp_ALLSEQS.npy', encoded[~used])
+                np.save(temp_npy, encoded[~used])
 
                 predf = pd.DataFrame({
                     'list_of_seqs': list_of_seqs,
                     'n_similar': list_of_seqs_lens,
                     'groups': 0
                 })
-                predf.to_csv(prefilename[:-4] + '_temp.csv', index=False)
+                predf.to_csv(temp_csv, index=False)
 
-    # --- final save ---
+    # --- final output ---
     predf = pd.DataFrame({
         'list_of_seqs': list_of_seqs,
         'n_similar': list_of_seqs_lens,
@@ -124,6 +125,7 @@ def process_seqlist(all_seqs, prefilename,
     predf.to_csv(prefilename, index=False)
 
     return predf
+
 
 def get_ncbi(file_path, output_fld):
     '''updated 20250605'''
