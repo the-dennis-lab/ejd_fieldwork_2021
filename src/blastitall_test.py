@@ -41,13 +41,23 @@ def process_seqlist(all_seqs, prefilename,
     
         # --- sanitize input sequences ---
     clean_seqs = []
+    bad = 0
+
     for s in all_seqs:
         if not isinstance(s, str):
+            bad += 1
             continue
         s = s.strip().upper()
-        if len(s) < 80:
+        # remove anything not ACGTN
+        s = ''.join(c if c in 'ACGTN' else 'N' for c in s)
+        if len(s[:100]) != 100:
+            bad += 1
             continue
+
         clean_seqs.append(s)
+
+    print(f"using {len(clean_seqs)} clean sequences ({bad} dropped)")
+    all_seqs = clean_seqs
 
     all_seqs = clean_seqs
 
