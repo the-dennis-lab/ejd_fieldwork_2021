@@ -152,71 +152,105 @@ def process_seqlist(all_seqs, prefilename,
 
     return predf
 
-
 def get_ncbi(file_path, output_fld):
-    '''updated 20250605'''
-    '''updated 20260108 to deal with Ns'''
+    """
+    Process sequences from a TSV file, cluster them using Hamming distance,
+    and save representative sequences with grouping info.
+    """
+
     try:
         file = pd.read_table(file_path)
-        file['medqual']=[np.median(eval(val)) for val in file.QUALITY]
-        qual_seqs= np.array(file.NUC_SEQ[file.medqual>32])
-    except:
-        print('{} FAILED'.format(file_path))
-    step=0
-    prefilename='{}/{}_pre.csv'.format(output_fld,file_path.split('/')[-1].split('.tsv')[0])
-    # look for processed files, set step accordingly
+        # calculate median quality
+        file['medqual'] = [np.median(eval(val)) for val in file.QUALITY]
+        # select sequences with median quality > 32
+        qual_seqs = file.NUC_SEQ[file.medqual > 32].tolist()
+    except Exception as e:
+        print(f"{file_path} FAILED: {e}")
+        return
+
+    prefilename = f'{output_fld}/{os.path.basename(file_path).split(".tsv")[0]}_pre.csv'
+
+    # --- determine processing step ---
+    step = 0
+    predf = None
+
     if os.path.exists(prefilename):
-        if os.path.exists(prefilename[:-4]+'_2.csv'):
-            print('{} has already been through all pre-processing! starting blasts'.format(prefilename))
-            predf=pd.read_csv(prefilename[:-4]+'_2.csv',index_col=0)
-            step=2
+        if os.path.exists(prefilename[:-4] + '_2.csv'):
+            print(f'{prefilename} has already been through all pre-processing! starting blasts')
+            predf = pd.read_csv(prefilename[:-4] + '_2.csv', index_col=0)
+            step = 2
         else:
-            print('{} already has been processed! using pre-made file'.format(prefilename))
-            predf=pd.read_csv(prefilename,index_col=0)
-            step=1
-    # start processing
+            print(f'{prefilename} already has been processed! using pre-made file')
+            predf = pd.read_csv(prefilename, index_col=0)
+            step = 1
+
+    # --- Step 0: cluster sequences ---
     if step < 1:
-	    list_of_seqs_lens=[]
-	    list_of_seqs=[]
-	    print('starting while loop for file_path {}'.format(file_path))
-	    process_seqlist(qual_seqs,prefilename)
-	    predf=pd.read_csv(prefilename,index_col=0)
+        print(f"Step 0: clustering sequences for {file_path}")
+        predf = process_seqlist(qual_seqs, prefilename)  # returns predf
+        step = 1
+
+    # --- Step 1 -> 2: assign groups ---
     if step < 2:
-            print('starting from pre file for {}'.format(file_path))
-            group_num=0
-            ns_in_seq=[]
-            for idx in predf.index:
-                seq = str(predf.list_of_seqs[idx])
-                seq_count=seq.count('n')
-                ns_in_seq.append(seq_count)
-                if predf.groups[idx]==0:
-                    group_num+=1
-                    predf.loc[idx,'groups']=group_num
-                    for i in predf.index[idx:]:
-                        if fuzz.ratio(seq,predf.list_of_seqs[i])+np.max([seq_count,str(predf.list_of_seqs[i]).count('n')])>97:
-                            predf.loc[i,'groups']=group_num
-            predf['ns_in_seq']=ns_in_seq
-            predf.to_csv(prefilename[:-4]+'_2.csv')
-    predf=pd.read_csv(prefilename[:-4]+'_2.csv',index_col=0)
-    print('starting from pre_2 file')
-    seqs=[]
-    n_similar=[]
-    indices_grouped=[]
+        print(f"Step 1 -> 2: assigning groups for {file_path}")
+        group_num = 0
+        ns_in_seq = []
+
+        # ensure predf has correct columns
+        predf.columns = [c.strip() for c in predf.columns]
+        if 'list_of_seqs' not in predf.columns or 'n_similar' not in predf.columns:
+            raise RuntimeError(f"{prefilename} has unexpected columns: {predf.columns}")
+
+        # compute Ns per sequence
+        for seq in predf['list_of_seqs']:
+            ns_in_seq.append(seq.count('N'))
+
+        predf['ns_in_seq'] = ns_in_seq
+        predf['groups'] = 0
+
+        for idx in predf.index:
+            if predf.at[idx, 'groups'] == 0:
+                group_num += 1
+                predf.at[idx, 'groups'] = group_num
+                seq = predf.at[idx, 'list_of_seqs']
+                seq_n = seq.count('N')
+
+                for i in predf.index[idx:]:
+                    comp_seq = predf.at[i, 'list_of_seqs']
+                    comp_n = comp_seq.count('N')
+                    # Hamming similarity + Ns check
+                    mismatches = sum(c1 != c2 and c1 != 'N' and c2 != 'N'
+                                     for c1, c2 in zip(seq, comp_seq))
+                    if mismatches + max(seq_n, comp_n) <= 5:  # ~95% threshold
+                        predf.at[i, 'groups'] = group_num
+
+        predf.to_csv(prefilename[:-4] + '_2.csv')
+
+    # --- Step 2: generate representative sequences ---
+    predf = pd.read_csv(prefilename[:-4] + '_2.csv', index_col=0)
+    seqs = []
+    n_similar = []
+    indices_grouped = []
+
     for group in np.unique(predf.groups):
-        subdf=predf[predf.groups==group].copy()
-        if len(subdf[subdf.ns_in_seq==np.min(subdf.ns_in_seq)])==1:
-            keep_index=subdf.index[subdf.ns_in_seq==np.min(subdf.ns_in_seq)]
-        else:
-            keep_index = subdf.index[subdf.ns_in_seq==np.min(subdf.ns_in_seq)][0]
-        seqs.append(str(subdf.list_of_seqs[subdf.ns_in_seq==np.min(subdf.ns_in_seq)].values[0]))
-        n_similar.append(np.sum([val for val in subdf.n_similar]))
+        subdf = predf[predf.groups == group].copy()
+        min_ns = subdf.ns_in_seq.min()
+        keep_idx = subdf[subdf.ns_in_seq == min_ns].index[0]
+
+        seqs.append(subdf.at[keep_idx, 'list_of_seqs'])
+        n_similar.append(subdf['n_similar'].sum())
         indices_grouped.append(list(subdf.index))
-    df=pd.DataFrame()
-    df['seqs']=seqs
-    df['n_similar']=n_similar
-    df['indices_grouped']=indices_grouped
-    infofilename='{}/{}_info.csv'.format(output_fld,file_path.split('/')[-1].split('.tsv')[0])
-    df.to_csv(infofilename)
+
+    df = pd.DataFrame({
+        'seqs': seqs,
+        'n_similar': n_similar,
+        'indices_grouped': indices_grouped
+    })
+
+    infofilename = f'{output_fld}/{os.path.basename(file_path).split(".tsv")[0]}_info.csv'
+    df.to_csv(infofilename, index=False)
+    print(f"Finished processing {file_path}, info saved to {infofilename}")
+
     
 if __name__ == "__main__":
 
