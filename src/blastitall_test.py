@@ -38,6 +38,19 @@ def process_seqlist(all_seqs, prefilename,
                     max_mismatch=5,
                     anchors=(0, 10, 25, 50, 75),
                     checkpoint_every=5000):
+    
+        # --- sanitize input sequences ---
+    clean_seqs = []
+    for s in all_seqs:
+        if not isinstance(s, str):
+            continue
+        s = s.strip().upper()
+        if len(s) < 80:
+            continue
+        clean_seqs.append(s)
+
+    all_seqs = clean_seqs
+
 
     # --- DNA encoding table (FIXED) ---
     table = np.full(256, 4, dtype=np.uint8)
@@ -48,7 +61,10 @@ def process_seqlist(all_seqs, prefilename,
     table[ord('N')] = 4
 
     def encode(seq):
+        if not isinstance(seq, str):
+            raise ValueError(f"Non-string sequence encountered: {type(seq)}")
         return table[np.frombuffer(seq.encode(), dtype=np.uint8)]
+
 
     list_of_seqs = []
     list_of_seqs_lens = []
