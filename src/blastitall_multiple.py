@@ -34,6 +34,7 @@ import pandas as pd
 import os
 from collections import defaultdict
 from multiprocessing import Lock
+from urllib.error import HTTPError, URLError
 
 # one lock per process space
 FAILED_LOCK = Lock()
@@ -242,7 +243,6 @@ def get_ncbi(file_path, output_fld):
     result_list = []
     seq_counter=-1
     
-    print('starting blast for file {}'.format(file_path))
     failed_filename = os.path.join(
         output_fld,
         f"{os.path.basename(file_path).split('.tsv')[0]}_failed.txt"
@@ -324,8 +324,7 @@ if __name__ == "__main__":
 
 
     file_paths = [os.path.join(obi_out_fld,file) for file in os.listdir(obi_out_fld)]
-    
-    pool= multiprocessing.Pool(20)
-    pool.starmap(get_ncbi,[(file,output_fld) for file in file_paths])
+    for file in file_paths:
+        get_ncbi(file,output_fld)
     print('done')
 
