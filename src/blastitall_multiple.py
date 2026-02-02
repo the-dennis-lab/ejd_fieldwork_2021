@@ -19,7 +19,7 @@ outputs:
 
 import numpy as np
 import pandas as pd
-import os, csv, glob, sys, time
+import os, csv, glob, sys, time, random, socket
 import matplotlib.pyplot as plt
 from Bio.Blast import NCBIWWW
 from Bio import SeqIO
@@ -33,6 +33,68 @@ import numpy as np
 import pandas as pd
 import os
 from collections import defaultdict
+from multiprocessing import Lock
+
+# one lock per process space
+FAILED_LOCK = Lock()
+
+def log_failed_sequence(failed_file, seq_counter, seq, reason):
+    """
+    Append failed BLAST sequences safely in multiprocessing.
+    """
+    with FAILED_LOCK:
+        with open(failed_file, "a") as fh:
+            fh.write(
+                f">seq_{seq_counter} | reason: {reason}\n{seq}\n\n"
+            )
+
+def safe_qblast(
+    seq,
+    program="blastn",
+    database="nt",
+    max_retries=5,
+    base_sleep=5,
+    entrez_query=None
+):
+    """
+    Robust wrapper around NCBIWWW.qblast.
+    Returns BLAST XML as string, or None if it fails completely.
+    """
+
+    for attempt in range(1, max_retries + 1):
+        try:
+            # small jitter helps when many workers collide
+            time.sleep(base_sleep + random.uniform(0, 2))
+
+            handle = NCBIWWW.qblast(
+                program=program,
+                database=database,
+                sequence=seq,
+                entrez_query=entrez_query,
+                format_type="XML"
+            )
+
+            return handle.read()
+
+        except (HTTPError, URLError, socket.timeout) as e:
+            print(
+                f"[BLAST ERROR] attempt {attempt}/{max_retries}: {type(e).__name__}: {e}"
+            )
+
+        except Exception as e:
+            print(
+                f"[UNEXPECTED BLAST ERROR] attempt {attempt}/{max_retries}: {e}"
+            )
+
+        # exponential backoff
+        sleep_time = base_sleep * (2 ** (attempt - 1))
+        time.sleep(sleep_time)
+
+    print("[BLAST FAILED] exceeded max retries")
+    return None
+
+
+
 def process_seqlist(all_seqs):
     """
     Process sequences and select representative sequences based on Hamming similarity.
@@ -181,6 +243,10 @@ def get_ncbi(file_path, output_fld):
     seq_counter=-1
     
     print('starting blast for file {}'.format(file_path))
+    failed_filename = os.path.join(
+        output_fld,
+        f"{os.path.basename(file_path).split('.tsv')[0]}_failed.txt"
+    )
 
     for seq_counter, seq in enumerate(seqs):
 
@@ -201,15 +267,14 @@ def get_ncbi(file_path, output_fld):
         # ---- BLAST failed completely ----
         if blast_xml is None:
             print(f"[SKIPPING] seq {seq_counter} due to BLAST failure")
+            log_failed_sequence(
+                failed_filename,
+                seq_counter,
+                seq,
+                reason="qblast_failed"
+            )
             continue
 
-        results_filename = os.path.join(
-            output_fld,
-            "results_{}_{}.xml".format(
-                file_path.split('/')[-1].split('.tsv')[0],
-                seq_counter
-            )
-        )
 
         with open(results_filename, 'w') as save_file:
             save_file.write(blast_xml)
@@ -238,29 +303,6 @@ def get_ncbi(file_path, output_fld):
             columns=['hit_definition','hit_accession','subject','identities','expect']
         ).to_csv(filename_new, index=False)
 
-'''    
-for seq in seqs:
-        seq_counter+=1
-        filename_new='{}/results_{}_{}.csv'.format(output_fld, file_path.split('/')[-1].split('.tsv')[0],seq_counter)
-        if os.path.isfile(filename_new):
-            print('already processed seq {} of {}, skipping'.format(seq_counter,len(seqs)))
-        else:
-            print('starting blast {} of {}'.format(seq_counter,len(seqs)))
-            result_handle = NCBIWWW.qblast('blastn','nt',seq)
-            results_filename = os.path.join(output_fld,"results_{}_{}.xml".format(file_path.split('/')[-1].split('.tsv')[0],seq_counter))
-            data_tuples=[]
-            with open(results_filename, 'w') as save_file:
-                blast_results = result_handle.read()
-                save_file.write(blast_results)
-            for record in NCBIXML.parse(open(results_filename)):
-                if record.alignments:
-                    for align in record.alignments:
-                        for hsp in align.hsps:
-                            if hsp.expect < 1e-20:
-                                data_tuples.append((align.hit_def,align.accession,hsp.sbjct,hsp.identities,hsp.expect))
-            pd.DataFrame(data_tuples,columns=['hit_definition','hit_accession','subject','identities','expect']).to_csv(filename_new)
-    print('saving info file for {}'.format(infofilename))
-'''
     
 if __name__ == "__main__":
 
