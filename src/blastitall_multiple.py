@@ -19,7 +19,7 @@ outputs:
 
 import numpy as np
 import pandas as pd
-import os, csv, glob, sys
+import os, csv, glob, sys, time
 import matplotlib.pyplot as plt
 from Bio.Blast import NCBIWWW
 from Bio import SeqIO
@@ -179,7 +179,67 @@ def get_ncbi(file_path, output_fld):
     # read in fasta!
     result_list = []
     seq_counter=-1
-    for seq in seqs:
+    
+    print('starting blast for file {}'.format(file_path))
+
+    for seq_counter, seq in enumerate(seqs):
+
+        filename_new = '{}/results_{}_{}.csv'.format(
+            output_fld,
+            file_path.split('/')[-1].split('.tsv')[0],
+            seq_counter
+        )
+
+        if os.path.isfile(filename_new):
+            print(f'already processed seq {seq_counter} of {len(seqs)}, skipping')
+            continue
+
+        print(f'starting blast {seq_counter} of {len(seqs)}')
+
+        blast_xml = safe_qblast(seq)
+
+        # ---- BLAST failed completely ----
+        if blast_xml is None:
+            print(f"[SKIPPING] seq {seq_counter} due to BLAST failure")
+            continue
+
+        results_filename = os.path.join(
+            output_fld,
+            "results_{}_{}.xml".format(
+                file_path.split('/')[-1].split('.tsv')[0],
+                seq_counter
+            )
+        )
+
+        with open(results_filename, 'w') as save_file:
+            save_file.write(blast_xml)
+
+        data_tuples = []
+
+        try:
+            for record in NCBIXML.parse(open(results_filename)):
+                if record.alignments:
+                    for align in record.alignments:
+                        for hsp in align.hsps:
+                            if hsp.expect < 1e-20:
+                                data_tuples.append(
+                                    (align.hit_def,
+                                    align.accession,
+                                    hsp.sbjct,
+                                    hsp.identities,
+                                    hsp.expect)
+                                )
+        except Exception as e:
+            print(f"[XML PARSE ERROR] seq {seq_counter}: {e}")
+            continue
+
+        pd.DataFrame(
+            data_tuples,
+            columns=['hit_definition','hit_accession','subject','identities','expect']
+        ).to_csv(filename_new, index=False)
+
+'''    
+for seq in seqs:
         seq_counter+=1
         filename_new='{}/results_{}_{}.csv'.format(output_fld, file_path.split('/')[-1].split('.tsv')[0],seq_counter)
         if os.path.isfile(filename_new):
@@ -200,7 +260,7 @@ def get_ncbi(file_path, output_fld):
                                 data_tuples.append((align.hit_def,align.accession,hsp.sbjct,hsp.identities,hsp.expect))
             pd.DataFrame(data_tuples,columns=['hit_definition','hit_accession','subject','identities','expect']).to_csv(filename_new)
     print('saving info file for {}'.format(infofilename))
-
+'''
     
 if __name__ == "__main__":
 
