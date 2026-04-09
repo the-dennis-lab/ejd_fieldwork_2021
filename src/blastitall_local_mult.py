@@ -19,7 +19,7 @@ outputs:
 
 import numpy as np
 import pandas as pd
-import os, csv, glob, sys, time, random, socket
+import os, csv, glob, sys, time, random, socket, subprocess, tempfile
 import matplotlib.pyplot as plt
 from Bio.Blast import NCBIWWW
 from Bio import SeqIO
@@ -36,9 +36,59 @@ from collections import defaultdict
 from multiprocessing import Lock
 from urllib.error import HTTPError, URLError
 
+
+def local_blastn(
+    seq,
+    results_filename,
+    db_path,
+    evalue=1e-20,
+    max_hits=50
+):
+    """
+    Run local blastn on a single sequence.
+    Returns BLAST tabular results as list of tuples.
+    """
+
+    with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".fasta") as f:
+        f.write(">query\n")
+        f.write(seq + "\n")
+        fasta_path = f.name
+
+    try:
+        cmd = [
+            "blastn",
+            "-query", fasta_path,
+            "-db", db_path,
+            "-outfmt", "6 sseqid sacc stitle sseq nident evalue",
+            "-evalue", str(evalue),
+            "-max_target_seqs", str(max_hits)
+        ]
+
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            check=False
+        )
+
+        if result.returncode != 0:
+            print(f"[BLAST ERROR] {result.stderr}")
+            return None
+
+        rows = []
+        with open(results_filename, 'a') as the_file:
+            for line in result.stdout.strip().split("\n"):
+                if line:
+                    rows.append(tuple(line.split("\t")))
+                    the_file.write('{}\n'.format(line)) 
+
+        return rows
+    finally:
+        os.remove(fasta_path)
+
+
 # one lock per process space
 FAILED_LOCK = Lock()
-
 def log_failed_sequence(failed_file, seq_counter, seq, reason):
     """
     Append failed BLAST sequences safely in multiprocessing.
@@ -218,28 +268,33 @@ def get_ncbi(file_path, output_fld):
     seqs = []
     n_similar = []
     indices_grouped = []
+    infofilename = f'{output_fld}/{os.path.basename(file_path).split(".tsv")[0]}_info.csv'
+    
+    if os.path.exists(infofilename):
+    	df=pd.read_csv(infofilename)
+    	seqs = list(df.seqs)
+    else:
+        for group in np.unique(predf.groups):
+            subdf = predf[predf.groups == group].copy()
+            min_ns = subdf.ns_in_seq.min()
+            keep_idx = subdf[subdf.ns_in_seq == min_ns].index[0]
 
-    for group in np.unique(predf.groups):
-        subdf = predf[predf.groups == group].copy()
-        min_ns = subdf.ns_in_seq.min()
-        keep_idx = subdf[subdf.ns_in_seq == min_ns].index[0]
+            seqs.append(subdf.at[keep_idx, 'list_of_seqs'])
+            n_similar.append(subdf['n_similar'].sum())
+            indices_grouped.append(list(subdf.index))
 
-        seqs.append(subdf.at[keep_idx, 'list_of_seqs'])
-        n_similar.append(subdf['n_similar'].sum())
-        indices_grouped.append(list(subdf.index))
-
-    df = pd.DataFrame({
+        df = pd.DataFrame({
         'seqs': seqs,
         'n_similar': n_similar,
         'indices_grouped': indices_grouped
-    })
+        })
 
-    infofilename = f'{output_fld}/{os.path.basename(file_path).split(".tsv")[0]}_info.csv'
-    df.to_csv(infofilename, index=False)
-    print(f"Finished {file_path}, info saved to {infofilename}")
+
+        df.to_csv(infofilename, index=False)
+        print(f"Finished {file_path}, info saved to {infofilename}")
     print('starting blast for file {}'.format(file_path))
-    # save out as fasta!
-    # read in fasta!
+
+
     result_list = []
     seq_counter=-1
     
@@ -262,52 +317,31 @@ def get_ncbi(file_path, output_fld):
             seq_counter
         )
 
+
         if os.path.isfile(filename_new):
             print(f'already processed seq {seq_counter} of {len(seqs)}, skipping')
             continue
 
         print(f'starting blast {seq_counter} of {len(seqs)}')
 
-        blast_xml = safe_qblast(seq)
+        blast_xml = local_blastn(
+            seq, results_filename,
+            db_path="/home/dennislab2/Desktop/GitHub/ejd_fieldwork_2021/src/nt"
+        )
 
-        # ---- BLAST failed completely ----
         if blast_xml is None:
-            print(f"[SKIPPING] seq {seq_counter} due to BLAST failure")
             log_failed_sequence(
                 failed_filename,
                 seq_counter,
                 seq,
-                reason="qblast_failed"
+                reason="local_blast_failed"
             )
             continue
+        else:
+            pd.DataFrame(blast_xml, columns=['hit_definition','hit_accession','subject','seq','identities','expect']).to_csv(filename_new, index=False)
 
 
-        with open(results_filename, 'w') as save_file:
-            save_file.write(blast_xml)
 
-        data_tuples = []
-
-        try:
-            for record in NCBIXML.parse(open(results_filename)):
-                if record.alignments:
-                    for align in record.alignments:
-                        for hsp in align.hsps:
-                            if hsp.expect < 1e-20:
-                                data_tuples.append(
-                                    (align.hit_def,
-                                    align.accession,
-                                    hsp.sbjct,
-                                    hsp.identities,
-                                    hsp.expect)
-                                )
-        except Exception as e:
-            print(f"[XML PARSE ERROR] seq {seq_counter}: {e}")
-            continue
-
-        pd.DataFrame(
-            data_tuples,
-            columns=['hit_definition','hit_accession','subject','identities','expect']
-        ).to_csv(filename_new, index=False)
 
     
 if __name__ == "__main__":
@@ -330,7 +364,8 @@ if __name__ == "__main__":
 
 
     file_paths = [os.path.join(obi_out_fld,file) for file in os.listdir(obi_out_fld)]
-    for file in file_paths:
-        get_ncbi(file,output_fld)
+    
+    pool = multiprocessing.Pool(20)
+    pool.starmap(get_ncbi,[(file,output_fld) for file in file_paths])
     print('done')
 

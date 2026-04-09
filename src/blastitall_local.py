@@ -38,6 +38,7 @@ from urllib.error import HTTPError, URLError
 
 def local_blastn(
     seq,
+    results_filename,
     db_path,
     evalue=1e-20,
     max_hits=50
@@ -74,12 +75,13 @@ def local_blastn(
             return None
 
         rows = []
-        for line in result.stdout.strip().split("\n"):
-            if line:
-                rows.append(tuple(line.split("\t")))
+        with open(results_filename, 'a') as the_file:
+            for line in result.stdout.strip().split("\n"):
+                if line:
+                    rows.append(tuple(line.split("\t")))
+                    the_file.write('{}\n'.format(line)) 
 
         return rows
-
     finally:
         os.remove(fasta_path)
 
@@ -266,28 +268,33 @@ def get_ncbi(file_path, output_fld):
     seqs = []
     n_similar = []
     indices_grouped = []
+    infofilename = f'{output_fld}/{os.path.basename(file_path).split(".tsv")[0]}_info.csv'
+    
+    if os.path.exists(infofilename):
+    	df=pd.read_csv(infofilename)
+    	seqs = list(df.seqs)
+    else:
+        for group in np.unique(predf.groups):
+            subdf = predf[predf.groups == group].copy()
+            min_ns = subdf.ns_in_seq.min()
+            keep_idx = subdf[subdf.ns_in_seq == min_ns].index[0]
 
-    for group in np.unique(predf.groups):
-        subdf = predf[predf.groups == group].copy()
-        min_ns = subdf.ns_in_seq.min()
-        keep_idx = subdf[subdf.ns_in_seq == min_ns].index[0]
+            seqs.append(subdf.at[keep_idx, 'list_of_seqs'])
+            n_similar.append(subdf['n_similar'].sum())
+            indices_grouped.append(list(subdf.index))
 
-        seqs.append(subdf.at[keep_idx, 'list_of_seqs'])
-        n_similar.append(subdf['n_similar'].sum())
-        indices_grouped.append(list(subdf.index))
-
-    df = pd.DataFrame({
+        df = pd.DataFrame({
         'seqs': seqs,
         'n_similar': n_similar,
         'indices_grouped': indices_grouped
-    })
+        })
 
-    infofilename = f'{output_fld}/{os.path.basename(file_path).split(".tsv")[0]}_info.csv'
-    df.to_csv(infofilename, index=False)
-    print(f"Finished {file_path}, info saved to {infofilename}")
+
+        df.to_csv(infofilename, index=False)
+        print(f"Finished {file_path}, info saved to {infofilename}")
     print('starting blast for file {}'.format(file_path))
-    # save out as fasta!
-    # read in fasta!
+
+
     result_list = []
     seq_counter=-1
     
@@ -303,6 +310,13 @@ def get_ncbi(file_path, output_fld):
             file_path.split('/')[-1].split('.tsv')[0],
             seq_counter
         )
+        
+        results_filename='{}/results_{}_{}.txt'.format(
+            output_fld,
+            file_path.split('/')[-1].split('.tsv')[0],
+            seq_counter
+        )
+
 
         if os.path.isfile(filename_new):
             print(f'already processed seq {seq_counter} of {len(seqs)}, skipping')
@@ -310,12 +324,12 @@ def get_ncbi(file_path, output_fld):
 
         print(f'starting blast {seq_counter} of {len(seqs)}')
 
-        rows = local_blastn(
-            seq,
-            db_path="/path/to/your/blast/db/nt"
+        blast_xml = local_blastn(
+            seq, results_filename,
+            db_path="/home/dennislab2/Desktop/GitHub/ejd_fieldwork_2021/src/nt"
         )
 
-        if rows is None:
+        if blast_xml is None:
             log_failed_sequence(
                 failed_filename,
                 seq_counter,
@@ -323,18 +337,8 @@ def get_ncbi(file_path, output_fld):
                 reason="local_blast_failed"
             )
             continue
-
-        pd.DataFrame(
-            rows,
-            columns=[
-                "subject_id",
-                "accession",
-                "hit_definition",
-                "subject",
-                "identities",
-                "expect"
-            ]
-        ).to_csv(filename_new, index=False)
+        else:
+            pd.DataFrame(blast_xml, columns=['hit_definition','hit_accession','subject','seq','identities','expect']).to_csv(filename_new, index=False)
 
 
     

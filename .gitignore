@@ -3,6 +3,13 @@ data/
 data/*
 data/**
 
+# data not in data folder
+src/*.gz
+src/*.md5
+src/nt.*
+src/taxdb.*
+src/taxonomy4blast.sqlite3
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
